@@ -1,589 +1,990 @@
 import streamlit as st
+import streamlit.components.v1 as components
+import json
+import io
+import os
+import re
+import html
+
+from openai import OpenAI
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.enum.text import PP_ALIGN
+from pptx.dml.color import RGBColor
+
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_RIGHT
+from reportlab.lib import colors
+
+
+# ==========================================
+# إعدادات التطبيق
+# ==========================================
 
 st.set_page_config(
-    page_title="منصة المعلم الذكي | المناهج السعودية",
+    page_title="مُعين | MUEEN",
     page_icon="🎓",
-    layout="wide",
-    initial_sidebar_state="collapsed",
+    layout="wide"
 )
 
-# --- تنسيق الواجهة العربية الحديثة وإخفاء زوائد Streamlit ---
-st.markdown(
-    """
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
 
-        html, body, [class*="css"] {
-            font-family: 'IBM Plex Sans Arabic', sans-serif;
-            direction: RTL;
-            text-align: right;
-        }
-
-        #MainMenu, footer, header, [data-testid="stToolbar"], [data-testid="stDecoration"] {
-            visibility: hidden;
-            display: none;
-        }
-
-        .stApp {
-            background: linear-gradient(180deg, #f3f6fb 0%, #eef2f7 100%);
-        }
-
-        .top-hero {
-            background: linear-gradient(135deg, #0f3d3e 0%, #165b5d 55%, #1f7a7c 100%);
-            color: #ffffff;
-            padding: 24px 28px;
-            border-radius: 20px;
-            box-shadow: 0 12px 30px rgba(15, 61, 62, 0.16);
-            margin-bottom: 20px;
-        }
-
-        .top-hero h1 {
-            color: #ffffff;
-            font-size: 1.65rem;
-            font-weight: 700;
-            margin: 0 0 6px 0;
-        }
-
-        .top-hero p {
-            color: #d9f0f0;
-            margin: 0;
-            font-size: 0.98rem;
-        }
-
-        .badge-pill {
-            display: inline-block;
-            background: rgba(255, 255, 255, 0.16);
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            color: #ffffff;
-            padding: 5px 12px;
-            border-radius: 999px;
-            font-size: 0.82rem;
-            font-weight: 600;
-            margin-left: 8px;
-            margin-top: 10px;
-        }
-
-        .panel-card {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 18px;
-            padding: 20px;
-            box-shadow: 0 6px 20px rgba(15, 23, 42, 0.04);
-            margin-bottom: 16px;
-        }
-
-        .slide-stage {
-            background: linear-gradient(160deg, #ffffff 0%, #f8fafc 100%);
-            border: 2px solid #cbd5e1;
-            border-radius: 22px;
-            padding: 28px;
-            min-height: 330px;
-            box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
-            position: relative;
-        }
-
-        .slide-stage.fullscreen-mode {
-            min-height: 520px;
-            border-color: #165b5d;
-            border-width: 2.5px;
-        }
-
-        .slide-header-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid #e2e8f0;
-            padding-bottom: 12px;
-            margin-bottom: 18px;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .slide-tag {
-            background: #e6f4f1;
-            color: #0f3d3e;
-            font-weight: 700;
-            font-size: 0.85rem;
-            padding: 6px 14px;
-            border-radius: 999px;
-        }
-
-        .slide-counter {
-            background: #f1f5f9;
-            color: #334155;
-            font-weight: 600;
-            font-size: 0.85rem;
-            padding: 6px 12px;
-            border-radius: 999px;
-        }
-
-        .slide-title {
-            font-size: 1.35rem;
-            font-weight: 700;
-            color: #0f172a;
-            margin-bottom: 14px;
-        }
-
-        .slide-body {
-            font-size: 1.05rem;
-            line-height: 1.85;
-            color: #1e293b;
-        }
-
-        .highlight-box {
-            background: #f0fdf4;
-            border-right: 4px solid #15803d;
-            padding: 12px 16px;
-            border-radius: 10px;
-            margin-top: 14px;
-            color: #14532d;
-            font-weight: 500;
-        }
-
-        .game-box {
-            background: #fffbeb;
-            border-right: 4px solid #d97706;
-            padding: 14px 16px;
-            border-radius: 10px;
-            margin-top: 14px;
-            color: #78350f;
-        }
-
-        div.stButton > button {
-            border-radius: 12px;
-            font-weight: 600;
-            padding: 0.55rem 1rem;
-            border: 1px solid #cbd5e1;
-        }
-
-        div.stButton > button[kind="primary"] {
-            background: #165b5d;
-            border-color: #165b5d;
-            color: #ffffff;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# --- قاعدة بيانات شاملة لجميع المراحل والصفوف والمواد في المناهج السعودية ---
-CURRICULUM = {
-    "المرحلة الابتدائية": {
-        "الأول الابتدائي": [
-            "لغتي",
-            "الرياضيات",
-            "العلوم",
-            "الدراسات الإسلامية",
-            "التربية الفنية",
-            "التربية البدنية والدفاع عن النفس",
-            "الحياة الأسرية",
-        ],
-        "الثاني الابتدائي": [
-            "لغتي",
-            "الرياضيات",
-            "العلوم",
-            "الدراسات الإسلامية",
-            "التربية الفنية",
-            "التربية البدنية والدفاع عن النفس",
-            "الحياة الأسرية",
-        ],
-        "الثالث الابتدائي": [
-            "لغتي",
-            "الرياضيات",
-            "العلوم",
-            "الدراسات الإسلامية",
-            "التربية الفنية",
-            "التربية البدنية والدفاع عن النفس",
-            "الحياة الأسرية",
-        ],
-        "الرابع الابتدائي": [
-            "لغتي",
-            "الرياضيات",
-            "العلوم",
-            "الدراسات الإسلامية",
-            "الدراسات الاجتماعية",
-            "المهارات الرقمية",
-            "التربية الفنية",
-            "التربية البدنية والدفاع عن النفس",
-            "المهارات الحياتية والأسرية",
-        ],
-        "الخامس الابتدائي": [
-            "لغتي",
-            "الرياضيات",
-            "العلوم",
-            "الدراسات الإسلامية",
-            "الدراسات الاجتماعية",
-            "المهارات الرقمية",
-            "التربية الفنية",
-            "التربية البدنية والدفاع عن النفس",
-            "المهارات الحياتية والأسرية",
-        ],
-        "السادس الابتدائي": [
-            "لغتي",
-            "الرياضيات",
-            "العلوم",
-            "الدراسات الإسلامية",
-            "الدراسات الاجتماعية",
-            "المهارات الرقمية",
-            "التربية الفنية",
-            "التربية البدنية والدفاع عن النفس",
-            "المهارات الحياتية والأسرية",
-        ],
-    },
-    "المرحلة المتوسطة": {
-        "الأول المتوسط": [
-            "لغتي الخالدة",
-            "الرياضيات",
-            "العلوم",
-            "الدراسات الإسلامية",
-            "الدراسات الاجتماعية",
-            "المهارات الرقمية",
-            "التربية الفنية",
-            "التربية البدنية والدفاع عن النفس",
-            "المهارات الحياتية والأسرية",
-        ],
-        "الثاني المتوسط": [
-            "لغتي الخالدة",
-            "الرياضيات",
-            "العلوم",
-            "الدراسات الإسلامية",
-            "الدراسات الاجتماعية",
-            "المهارات الرقمية",
-            "التربية الفنية",
-            "التربية البدنية والدفاع عن النفس",
-            "المهارات الحياتية والأسرية",
-        ],
-        "الثالث المتوسط": [
-            "لغتي الخالدة",
-            "الرياضيات",
-            "العلوم",
-            "الدراسات الإسلامية",
-            "الدراسات الاجتماعية",
-            "المهارات الرقمية",
-            "التربية الفنية",
-            "التربية البدنية والدفاع عن النفس",
-            "المهارات الحياتية والأسرية",
-        ],
-    },
-    "المرحلة الثانوية": {
-        "الأول الثانوي (السنة المشتركة)": [
-            "اللغة العربية (الكفايات اللغوية)",
-            "الرياضيات",
-            "الأحياء",
-            "الكيمياء",
-            "الفيزياء",
-            "القرآن الكريم والدراسات الإسلامية",
-            "الدراسات الاجتماعية",
-            "التقنية الرقمية",
-            "التربية الصحية والبدنية",
-            "التفكير الناقد",
-            "اللياقة والثقافة الصحية",
-        ],
-        "الثاني الثانوي": [
-            "الرياضيات",
-            "الأحياء",
-            "الكيمياء",
-            "الفيزياء",
-            "اللغة العربية",
-            "القرآن الكريم والدراسات الإسلامية",
-            "الدراسات الاجتماعية",
-            "التقنية الرقمية",
-            "العلوم الإدارية والمالية",
-            "التربية الصحية والبدنية",
-        ],
-        "الثالث الثانوي": [
-            "الرياضيات",
-            "الأحياء",
-            "الكيمياء",
-            "الفيزياء",
-            "اللغة العربية",
-            "القرآن الكريم والدراسات الإسلامية",
-            "الدراسات الاجتماعية",
-            "التقنية الرقمية",
-            "العلوم الإدارية والمالية",
-            "التربية الصحية والبدنية",
-        ],
-    },
+html, body, [class*="css"] {
+    font-family: 'Cairo', sans-serif;
+    direction: rtl;
+    text-align: right;
 }
 
-STRATEGIES = [
-    "التعلم التعاوني",
-    "العصف الذهني",
-    "الاستقصاء الموجّه",
-    "فكر - زاوج - شارك",
-    "التعلم باللعب",
-    "الخرائط الذهنية",
-]
+.stApp {
+    background: #f7f9fc;
+}
 
-# --- تهيئة حالة الجلسة ---
-if "subscribed" not in st.session_state:
-    st.session_state.subscribed = True
-if "plan_name" not in st.session_state:
-    st.session_state.plan_name = "الباقة الشهرية للمعلمين (نشطة)"
-if "slide_idx" not in st.session_state:
-    st.session_state.slide_idx = 0
-if "fullscreen_slide" not in st.session_state:
-    st.session_state.fullscreen_slide = False
-if "deck" not in st.session_state:
-    st.session_state.deck = None
+.main-title {
+    background: linear-gradient(120deg, #102e46, #176b75);
+    padding: 35px;
+    border-radius: 22px;
+    color: white;
+    text-align: center;
+    margin-bottom: 25px;
+}
+
+.main-title h1 {
+    font-size: 45px;
+    font-weight: 800;
+}
+
+.main-title p {
+    font-size: 18px;
+}
+
+.stButton button {
+    border-radius: 12px;
+    font-weight: bold;
+}
+
+div[data-testid="stMetric"] {
+    background: white;
+    padding: 15px;
+    border-radius: 15px;
+}
+</style>
+""", unsafe_allow_html=True)
 
 
-def build_slides(stage, grade, subject, unit_title, p_start, p_end, strategy, notes):
-    page_span = f"من صفحة {p_start} إلى صفحة {p_end}"
-    lesson_label = unit_title.strip() if unit_title.strip() else f"وحدة {subject} ({page_span})"
-    extra_note = notes.strip() if notes.strip() else "ربط المفاهيم بالواقع اليومي للطالب داخل الصف."
+# ==========================================
+# وظائف الذكاء الاصطناعي
+# ==========================================
 
+def demo_lesson(data):
+
+    topic = data["topic"]
+    subject = data["subject"]
+
+    return {
+        "title": topic,
+
+        "objectives": [
+            f"أن يشرح الطالب مفهوم {topic}.",
+            f"أن يطبق الطالب {topic} في مثال.",
+            "أن يشارك في النشاط ويبرر إجابته."
+        ],
+
+        "slides": [
+            {
+                "title": f"مرحبًا بكم في درس {topic}",
+                "body": f"المادة: {subject}\nالصف: {data['grade']}\n\nهيا نتعلم معًا!"
+            },
+            {
+                "title": "تهيئة الدرس",
+                "body": f"ماذا تعرف عن {topic}؟\nأين يمكن أن نلاحظ هذا المفهوم في حياتنا؟"
+            },
+            {
+                "title": "أهداف الدرس",
+                "body": "\n".join(data_objectives(data))
+            },
+            {
+                "title": "شرح المفهوم",
+                "body": f"تعرف على {topic} من خلال شرح مبسط وأمثلة مناسبة لمستواك الدراسي."
+            },
+            {
+                "title": "مثال تطبيقي",
+                "body": "اقرأ المثال جيدًا.\nحدد المعلومات المهمة.\nفكر في طريقة الحل.\nتحقق من إجابتك."
+            },
+            {
+                "title": "نشاط تعليمي",
+                "body": f"نفذ نشاطًا باستخدام استراتيجية {data['strategy']}."
+            },
+            {
+                "title": "ناقش مع زملائك",
+                "body": f"كيف يمكن استخدام {topic} في الحياة اليومية؟"
+            },
+            {
+                "title": "تقويم التعلم",
+                "body": "ما أهم فكرة تعلمتها اليوم؟\nما السؤال الذي لا يزال لديك؟"
+            },
+            {
+                "title": "ملخص الدرس",
+                "body": f"تعلمنا اليوم عن {topic} وطبقنا المفهوم في أمثلة وأنشطة."
+            }
+        ],
+
+        "worksheet": [
+            {
+                "question": f"اشرح معنى {topic} بأسلوبك.",
+                "options": [],
+                "answer": "إجابة الطالب وفق المفهوم الصحيح."
+            },
+            {
+                "question": f"اذكر مثالًا على {topic}.",
+                "options": [],
+                "answer": "مثال صحيح مرتبط بالدرس."
+            },
+            {
+                "question": f"أي عبارة تصف {topic} بشكل أفضل؟",
+                "options": [
+                    "فهم المفهوم وتطبيقه",
+                    "حفظ العنوان فقط",
+                    "تجاهل الأمثلة"
+                ],
+                "answer": "فهم المفهوم وتطبيقه"
+            }
+        ],
+
+        "game": [
+            {
+                "question": f"ما موضوع درسنا اليوم؟",
+                "options": [
+                    topic,
+                    "موضوع آخر",
+                    "لا شيء مما سبق"
+                ],
+                "correct": 0
+            },
+            {
+                "question": "ما أفضل طريقة للتعلم؟",
+                "options": [
+                    "الفهم والتطبيق",
+                    "الحفظ دون فهم",
+                    "عدم المشاركة"
+                ],
+                "correct": 0
+            },
+            {
+                "question": "ماذا نفعل بعد حل السؤال؟",
+                "options": [
+                    "نتحقق من الإجابة",
+                    "نتجاهل الحل",
+                    "نترك السؤال"
+                ],
+                "correct": 0
+            }
+        ],
+
+        "teacher_guide": (
+            f"ابدأ بتهيئة الطلاب لموضوع {topic}، "
+            "ثم اشرح المفهوم باستخدام أمثلة مناسبة. "
+            f"استخدم استراتيجية {data['strategy']}، "
+            "واختم بتقويم قصير."
+        )
+    }
+
+
+def data_objectives(data):
     return [
-        {
-            "tag": "الشريحة 1 • التمهيد والأهداف",
-            "title": f"{subject} — {lesson_label}",
-            "body": (
-                f"<b>المرحلة والصف:</b> {stage} / {grade}<br>"
-                f"<b>نطاق الكتاب المحدد:</b> {page_span}<br>"
-                f"<b>استراتيجية التدريس:</b> {strategy}<br><br>"
-                f"<b>هدف الحصة:</b> تمكين الطلاب من استيعاب المفاهيم الأساسية للنطاق المحدد وتطبيقها بثقة داخل الصف."
-            ),
-            "box": f"<b>ملاحظة المعلم:</b> {extra_note}",
-            "box_type": "highlight",
-        },
-        {
-            "tag": "الشريحة 2 • الشرح والمفاهيم الأساسية",
-            "title": f"المفاهيم المحورية في ({lesson_label})",
-            "body": (
-                f"نستعرض في هذا الجزء العناصر الرئيسية الواردة في {page_span} من مقرر <b>{subject}</b> بلغة مبسطة ومتدرجة تناسب مستوى طلاب <b>{grade}</b>:<br>"
-                f"• تعريف الفكرة المركزية وتحديد عناصرها الأساسية.<br>"
-                f"• الربط بين المصطلحات والمواقف اليومية المألوفة للطالب.<br>"
-                f"• التنبيه على الأخطاء الشائعة والتحقق من الفهم خطوة بخطوة."
-            ),
-            "box": f"<b>تطبيق استراتيجية ({strategy}):</b> قسّم الصف إلى مجموعات قصيرة، واطلب من كل مجموعة استخراج فكرة واحدة من {page_span}.",
-            "box_type": "highlight",
-        },
-        {
-            "tag": "الشريحة 3 • أمثلة وتطبيقات عملية",
-            "title": "أمثلة صفية ونماذج محلولة",
-            "body": (
-                f"<b>مثال (1):</b> نموذج تطبيقي مباشر مستمد من موضوعات {page_span} في مادة <b>{subject}</b> مع توضيح خطوات الحل بوضوح.<br>"
-                f"<b>مثال (2):</b> تطبيق واقعي مرتبط بحياة الطالب اليومية في المملكة لترسيخ الفكرة ومنع الحفظ المجرد."
-            ),
-            "box": "<b>سؤال للمناقشة السريعة:</b> كيف يمكنك تطبيق هذه الفكرة في موقف يمر بك يومياً؟",
-            "box_type": "highlight",
-        },
-        {
-            "tag": "الشريحة 4 • لعبة ونشاط تفاعلي",
-            "title": f"نشاط تفاعلي بأسلوب: {strategy}",
-            "body": (
-                "<b>لعبة «تحدي البطاقات السريعة»:</b><br>"
-                "1. يطرح المعلم سؤالاً مرتبطاً بالصفحات المحددة لمدة 30 ثانية.<br>"
-                "2. ترفع المجموعات إجاباتها أو تجيب شفهياً دون الاعتماد على الكتاب المفتوح.<br>"
-                "3. تُمنح نقطة لكل إجابة دقيقة مع ذكر السبب."
-            ),
-            "box": "<b>نشاط إضافي:</b> اطلب من طالب صياغة سؤال واحد لزملائه من محتوى الدرس.",
-            "box_type": "game",
-        },
-        {
-            "tag": "الشريحة 5 • الخلاصة والتقويم الختامي",
-            "title": "ملخص الدرس وتقويم ختامي سريع",
-            "body": (
-                f"• راجعنا أهم مفاهيم <b>{lesson_label}</b> ({page_span}).<br>"
-                f"• طبقنا أمثلة متنوعة ونشاطاً تفاعلياً وفق استراتيجية <b>{strategy}</b>.<br>"
-                f"• <b>تقويم ختامي:</b> سؤالان قصيران للتحقق من تحقق هدف الحصة قبل نهاية الوقت."
-            ),
-            "box": "<b>تنبيه العرض:</b> العرض يعمل مباشرة داخل المنصة لتسهيل الشرح داخل الفصل دون الحاجة لتحميل ملفات.",
-            "box_type": "highlight",
-        },
+        f"• أن يشرح الطالب مفهوم {data['topic']}.",
+        "• أن يطبق المفهوم في مثال.",
+        "• أن يشارك في النشاط التعليمي."
     ]
 
 
-# --- الشريط العلوي للواجهة الجديدة ---
-st.markdown(
-    """
-    <div class="top-hero">
-        <h1>🎓 منصة المعلم الذكي — عارض الدروس والشرائح التفاعلية</h1>
-        <p>جميع المراحل من أول ابتدائي إلى ثالث ثانوي • عرض شرائح مباشر داخل التطبيق • أزرار تنقل سهلة</p>
-        <span class="badge-pill">الابتدائية • المتوسطة • الثانوية</span>
-        <span class="badge-pill">عرض شرائح داخلي</span>
-        <span class="badge-pill">إدارة الاشتراكات</span>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+def extract_json(text):
 
-# --- شريط الحالة والاشتراك السريع ---
-col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
-with col_s1:
-    if st.session_state.subscribed:
-        st.success(f"حالة الاشتراك: {st.session_state.plan_name}")
-    else:
-        st.warning("حالة الاشتراك: متوقف — فعّل الاشتراك من تبويب (الاشتراك والباقات)")
-with col_s2:
-    if st.button("تبديل عرض الشريحة (عادي / مكبّر)", use_container_width=True):
-        st.session_state.fullscreen_slide = not st.session_state.fullscreen_slide
-        st.rerun()
-with col_s3:
-    if st.button("إعادة ضبط الشرائح", use_container_width=True):
-        st.session_state.slide_idx = 0
-        st.rerun()
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?", "", text)
+    text = re.sub(r"```$", "", text)
 
-tab_lesson, tab_sub = st.tabs(["📊 إعداد الدرس وعرض الشرائح", "💳 الاشتراك والباقات"])
+    start = text.find("{")
+    end = text.rfind("}")
 
-with tab_lesson:
-    left_col, right_col = st.columns([1.05, 1.45], gap="large")
+    if start == -1 or end == -1:
+        raise ValueError("تعذر قراءة نتيجة الذكاء الاصطناعي.")
 
-    with left_col:
-        st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-        st.subheader("1️⃣ اختيار المنهج والدرس")
+    return json.loads(text[start:end + 1])
 
-        stage = st.selectbox("المرحلة الدراسية", list(CURRICULUM.keys()))
-        grades_list = list(CURRICULUM[stage].keys())
-        grade = st.selectbox("الصف الدراسي", grades_list)
 
-        subjects_list = CURRICULUM[stage][grade]
-        subject = st.selectbox("المادة الدراسية", subjects_list)
+def generate_lesson(data, api_key, model):
 
-        unit_title = st.text_input(
-            "اسم الوحدة أو الدرس",
-            placeholder="مثال: الجملة الاسمية / الكسور / البناء الضوئي...",
+    if not api_key:
+        return demo_lesson(data)
+
+    client = OpenAI(api_key=api_key)
+
+    prompt = f"""
+أنت خبير في تصميم المناهج والتعلم والتعليم.
+
+أنشئ حزمة تعليمية باللغة العربية.
+
+بيانات الدرس:
+{json.dumps(data, ensure_ascii=False)}
+
+المطلوب:
+1. أهداف تعليمية قابلة للقياس.
+2. تسع شرائح عرض.
+3. ورقة عمل من خمسة أسئلة.
+4. لعبة تعليمية من خمسة أسئلة.
+5. دليل مختصر للمعلم.
+
+يجب أن تكون المخرجات مترابطة وتخدم أهداف الدرس نفسها.
+
+الاستراتيجية التعليمية:
+{data['strategy']}
+
+مدة الحصة:
+{data['duration']} دقيقة.
+
+اجعل اللغة مناسبة للمرحلة والصف.
+
+لا تخترع أرقام صفحات من الكتب المدرسية.
+لا تدّعِ مطابقة المحتوى للمنهج الرسمي دون مصدر موثوق.
+إذا كانت هناك معلومة تحتاج إلى تحقق، وضح ذلك.
+
+أعد النتيجة بصيغة JSON فقط بهذا الشكل:
+
+{{
+ "title": "عنوان الدرس",
+ "objectives": ["هدف 1", "هدف 2"],
+ "slides": [
+  {{"title": "عنوان الشريحة", "body": "محتوى الشريحة"}}
+ ],
+ "worksheet": [
+  {{
+   "question": "السؤال",
+   "options": ["خيار 1", "خيار 2", "خيار 3"],
+   "answer": "الإجابة"
+  }}
+ ],
+ "game": [
+  {{
+   "question": "السؤال",
+   "options": ["خيار 1", "خيار 2", "خيار 3"],
+   "correct": 0
+  }}
+ ],
+ "teacher_guide": "دليل المعلم"
+}}
+"""
+
+    response = client.responses.create(
+        model=model,
+        input=prompt
+    )
+
+    result = extract_json(response.output_text)
+
+    required = [
+        "title",
+        "slides",
+        "worksheet",
+        "game",
+        "teacher_guide"
+    ]
+
+    for key in required:
+        if key not in result:
+            raise ValueError(f"النتيجة ناقصة: {key}")
+
+    return result
+
+
+# ==========================================
+# إنشاء PowerPoint
+# ==========================================
+
+def create_powerpoint(lesson, data):
+
+    prs = Presentation()
+
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
+    navy = RGBColor(16, 46, 70)
+    teal = RGBColor(23, 107, 117)
+    white = RGBColor(255, 255, 255)
+
+    all_slides = [
+        {
+            "title": lesson["title"],
+            "body": (
+                f"{data['subject']} | {data['grade']}\n"
+                "منصة مُعين التعليمية"
+            )
+        }
+    ] + lesson["slides"]
+
+    for item in all_slides:
+
+        slide = prs.slides.add_slide(
+            prs.slide_layouts[6]
         )
 
-        p1, p2 = st.columns(2)
-        with p1:
-            p_start = st.number_input("من صفحة", min_value=1, max_value=400, value=12)
-        with p2:
-            p_end = st.number_input("إلى صفحة", min_value=1, max_value=400, value=18)
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = navy
 
-        strategy = st.selectbox("استراتيجية التدريس", STRATEGIES)
-        notes = st.text_area(
-            "تخصيص إضافي (اختياري)",
-            placeholder="اكتب أي توجيه خاص بالصف أو الأنشطة...",
-            height=75,
+        bar = slide.shapes.add_shape(
+            1,
+            0,
+            0,
+            prs.slide_width,
+            Inches(0.18)
         )
 
-        generate_clicked = st.button(
-            "✨ إنشاء الشرائح وعرضها الآن",
-            type="primary",
-            use_container_width=True,
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = teal
+        bar.line.fill.background()
 
-        if generate_clicked:
-            if not st.session_state.subscribed:
-                st.error("يرجى تفعيل الاشتراك أولاً من تبويب (الاشتراك والباقات).")
-            elif p_end < p_start:
-                st.error("رقم صفحة النهاية يجب أن يكون أكبر من أو يساوي صفحة البداية.")
-            else:
-                st.session_state.deck = build_slides(
-                    stage=stage,
-                    grade=grade,
-                    subject=subject,
-                    unit_title=unit_title,
-                    p_start=int(p_start),
-                    p_end=int(p_end),
-                    strategy=strategy,
-                    notes=notes,
+        title = slide.shapes.add_textbox(
+            Inches(0.7),
+            Inches(0.6),
+            Inches(12),
+            Inches(1.1)
+        )
+
+        p = title.text_frame.paragraphs[0]
+        p.text = str(item.get("title", ""))
+        p.alignment = PP_ALIGN.RIGHT
+        p.font.name = "Arial"
+        p.font.size = Pt(30)
+        p.font.bold = True
+        p.font.color.rgb = white
+
+        body = slide.shapes.add_textbox(
+            Inches(0.8),
+            Inches(2),
+            Inches(11.8),
+            Inches(4.7)
+        )
+
+        frame = body.text_frame
+        frame.word_wrap = True
+
+        for i, line in enumerate(
+            str(item.get("body", "")).split("\n")
+        ):
+
+            p = (
+                frame.paragraphs[0]
+                if i == 0
+                else frame.add_paragraph()
+            )
+
+            p.text = line
+            p.alignment = PP_ALIGN.RIGHT
+            p.font.name = "Arial"
+            p.font.size = Pt(21)
+            p.font.color.rgb = white
+
+    output = io.BytesIO()
+    prs.save(output)
+
+    return output.getvalue()
+
+
+# ==========================================
+# إنشاء PDF
+# ==========================================
+
+def create_pdf(lesson, data):
+
+    output = io.BytesIO()
+
+    doc = SimpleDocTemplate(
+        output,
+        pagesize=A4,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "ArabicTitle",
+        parent=styles["Title"],
+        fontSize=18,
+        leading=25,
+        alignment=TA_RIGHT,
+        textColor=colors.HexColor("#163954")
+    )
+
+    body_style = ParagraphStyle(
+        "ArabicBody",
+        parent=styles["BodyText"],
+        fontSize=12,
+        leading=21,
+        alignment=TA_RIGHT
+    )
+
+    story = []
+
+    story.append(
+        Paragraph(
+            html.escape("ورقة عمل: " + lesson["title"]),
+            title_style
+        )
+    )
+
+    story.append(Spacer(1, 15))
+
+    story.append(
+        Paragraph(
+            html.escape(
+                data["subject"] + " - " + data["grade"]
+            ),
+            body_style
+        )
+    )
+
+    story.append(Spacer(1, 20))
+
+    story.append(
+        Paragraph(
+            "اسم الطالب: ........................................",
+            body_style
+        )
+    )
+
+    story.append(Spacer(1, 20))
+
+    for i, q in enumerate(lesson["worksheet"], 1):
+
+        story.append(
+            Paragraph(
+                html.escape(
+                    f"{i}. {q.get('question', '')}"
+                ),
+                body_style
+            )
+        )
+
+        for option in q.get("options", []):
+
+            story.append(
+                Paragraph(
+                    html.escape("□ " + option),
+                    body_style
                 )
-                st.session_state.slide_idx = 0
-                st.rerun()
-
-    with right_col:
-        st.subheader("2️⃣ عارض الشرائح الداخلي")
-
-        if st.session_state.deck is None:
-            st.session_state.deck = build_slides(
-                stage="المرحلة الابتدائية",
-                grade="الأول الابتدائي",
-                subject="لغتي",
-                unit_title="الدرس التمهيدي",
-                p_start=1,
-                p_end=6,
-                strategy=STRATEGIES[0],
-                notes="",
             )
 
-        slides = st.session_state.deck
-        total_slides = len(slides)
-        idx = max(0, min(st.session_state.slide_idx, total_slides - 1))
-        st.session_state.slide_idx = idx
-        current_slide = slides[idx]
+        story.append(Spacer(1, 30))
 
-        # أزرار التنقل بين الشرائح
-        nav_prev, nav_info, nav_next = st.columns([1, 1.4, 1])
-        with nav_prev:
-            if st.button("⬅️ الشريحة السابقة", use_container_width=True, disabled=(idx == 0)):
-                st.session_state.slide_idx = idx - 1
-                st.rerun()
-        with nav_info:
-            st.markdown(
-                f"<div style='text-align:center; padding-top:8px; font-weight:700; color:#0f3d3e;'>شريحة {idx + 1} من {total_slides}</div>",
-                unsafe_allow_html=True,
-            )
-        with nav_next:
-            if st.button(
-                "الشريحة التالية ➡️",
-                use_container_width=True,
-                disabled=(idx == total_slides - 1),
-            ):
-                st.session_state.slide_idx = idx + 1
-                st.rerun()
+    doc.build(story)
 
-        st.markdown("<br>", unsafe_allow_html=True)
+    return output.getvalue()
 
-        # عرض الشريحة الحالية داخل إطار داخلي مباشر
-        stage_class = "slide-stage fullscreen-mode" if st.session_state.fullscreen_slide else "slide-stage"
-        box_class = "game-box" if current_slide["box_type"] == "game" else "highlight-box"
 
-        slide_html = f"""
-        <div class="{stage_class}">
-            <div class="slide-header-row">
-                <span class="slide-tag">{current_slide["tag"]}</span>
-                <span class="slide-counter">{idx + 1} / {total_slides}</span>
-            </div>
-            <div class="slide-title">{current_slide["title"]}</div>
-            <div class="slide-body">{current_slide["body"]}</div>
-            <div class="{box_class}">{current_slide["box"]}</div>
-        </div>
-        """
-        st.markdown(slide_html, unsafe_allow_html=True)
+# ==========================================
+# اللعبة التفاعلية
+# ==========================================
 
-        # شريط أرقام الشرائح للانتقال السريع
-        st.markdown("<br>", unsafe_allow_html=True)
-        quick_cols = st.columns(total_slides)
-        for i, q_col in enumerate(quick_cols):
-            with q_col:
-                label = f"• {i + 1} •" if i == idx else f"{i + 1}"
-                if st.button(label, key=f"jump_slide_{i}", use_container_width=True):
-                    st.session_state.slide_idx = i
-                    st.rerun()
+def create_game(lesson):
 
-with tab_sub:
-    st.markdown('<div class="panel-card">', unsafe_allow_html=True)
-    st.subheader("إدارة الاشتراك الشهري")
-    st.write("تحكم في حالة اشتراك المعلم للوصول إلى جميع المراحل والمواد وعارض الشرائح الداخلي.")
+    questions = json.dumps(
+        lesson["game"],
+        ensure_ascii=False
+    ).replace("</", "<\\/")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("### الباقة الشهرية للمعلم")
-        st.write("• جميع المراحل (ابتدائي، متوسط، ثانوي)")
-        st.write("• جميع المواد الدراسية المقررة")
-        st.write("• عارض شرائح داخلي بأزرار تنقل")
-        if st.button("تفعيل الباقة الشهرية", type="primary", use_container_width=True):
-            st.session_state.subscribed = True
-            st.session_state.plan_name = "الباقة الشهرية للمعلمين (نشطة)"
-            st.rerun()
+    return f"""
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
 
-    with c2:
-        st.markdown("### الباقة الفصلية المميزة")
-        st.write("• أولوية الوصول للمزايا الجديدة")
-        st.write("• تخصيص إضافي للأنشطة والاستراتيجيات")
-        st.write("• عرض مباشر داخل التطبيق دون تنزيل")
-        if st.button("تفعيل الباقة الفصلية", use_container_width=True):
-            st.session_state.subscribed = True
-            st.session_state.plan_name = "الباقة الفصلية المميزة (نشطة)"
-            st.rerun()
+<style>
+body {{
+    font-family: Arial;
+    background: #f1f6f7;
+    padding: 20px;
+}}
+
+.box {{
+    background: white;
+    max-width: 700px;
+    margin: auto;
+    padding: 25px;
+    border-radius: 20px;
+}}
+
+button {{
+    display: block;
+    width: 100%;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 12px;
+    border: 1px solid #ddd;
+    background: white;
+    font-size: 17px;
+    cursor: pointer;
+}}
+
+button:hover {{
+    background: #e5f4f2;
+}}
+
+#next {{
+    background: #176b75;
+    color: white;
+}}
+
+</style>
+</head>
+
+<body>
+
+<div class="box">
+
+<h2>🎮 تحدي مُعين</h2>
+
+<p id="number"></p>
+
+<h3 id="question"></h3>
+
+<div id="answers"></div>
+
+<p id="feedback"></p>
+
+<button id="next" style="display:none">
+السؤال التالي
+</button>
+
+<h3 id="result"></h3>
+
+</div>
+
+<script>
+
+const questions = {questions};
+
+let index = 0;
+let score = 0;
+let answered = false;
+
+function showQuestion() {{
+
+    answered = false;
+
+    document.getElementById("feedback").innerText = "";
+    document.getElementById("next").style.display = "none";
+
+    if (index >= questions.length) {{
+        finish();
+        return;
+    }}
+
+    let q = questions[index];
+
+    document.getElementById("number").innerText =
+        "السؤال " + (index + 1) + " من " + questions.length;
+
+    document.getElementById("question").innerText =
+        q.question;
+
+    let area = document.getElementById("answers");
+
+    area.innerHTML = "";
+
+    q.options.forEach((option, i) => {{
+
+        let btn = document.createElement("button");
+
+        btn.innerText = option;
+
+        btn.onclick = () => checkAnswer(i);
+
+        area.appendChild(btn);
+
+    }});
+
+}}
+
+function checkAnswer(choice) {{
+
+    if (answered) return;
+
+    answered = true;
+
+    let q = questions[index];
+
+    let correct = Number(q.correct) === choice;
+
+    if (correct) {{
+        score++;
+    }}
+
+    document.getElementById("feedback").innerText =
+        correct ? "إجابة صحيحة! أحسنت 🌟" : "ليست الإجابة الصحيحة، حاول في السؤال القادم.";
+
+    document.getElementById("next").style.display = "block";
+
+    document.getElementById("next").innerText =
+        index === questions.length - 1
+        ? "عرض النتيجة"
+        : "السؤال التالي";
+
+    document.querySelectorAll("#answers button").forEach(
+        btn => btn.disabled = true
+    );
+
+}}
+
+function finish() {{
+
+    document.getElementById("question").innerText =
+        "انتهت اللعبة!";
+
+    document.getElementById("answers").innerHTML = "";
+
+    document.getElementById("feedback").innerText = "";
+
+    document.getElementById("next").style.display = "none";
+
+    document.getElementById("result").innerText =
+        "نتيجتك: " + score + " من " + questions.length;
+
+}}
+
+document.getElementById("next").onclick = () => {{
+    index++;
+    showQuestion();
+}};
+
+showQuestion();
+
+</script>
+
+</body>
+</html>
+"""
+
+
+# ==========================================
+# واجهة مُعين
+# ==========================================
+
+st.markdown("""
+<div class="main-title">
+<h1>مُعين | MUEEN 🎓</h1>
+<p>درس واحد. كل أدواته. في دقائق.</p>
+<p>منصة ذكية لمساعدة المعلمين والمعلمات</p>
+</div>
+""", unsafe_allow_html=True)
+
+
+with st.sidebar:
+
+    st.header("إعدادات الذكاء الاصطناعي")
+
+    api_key = st.text_input(
+        "مفتاح OpenAI API",
+        type="password"
+    )
+
+    model = st.text_input(
+        "اسم النموذج",
+        value="gpt-4.1-mini"
+    )
 
     st.divider()
-    if st.session_state.subscribed:
-        if st.button("إيقاف الاشتراك مؤقتاً للاختبار"):
-            st.session_state.subscribed = False
-            st.session_state.plan_name = "غير مفعل"
-            st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.caption("MUEEN — منصة إعداد الدروس")
+
+
+st.header("إنشاء حزمة تعليمية")
+
+col1, col2 = st.columns(2)
+
+with col1:
+
+    stage = st.selectbox(
+        "المرحلة الدراسية",
+        ["الابتدائية", "المتوسطة", "الثانوية"]
+    )
+
+    grade = st.selectbox(
+        "الصف الدراسي",
+        [
+            "الأول",
+            "الثاني",
+            "الثالث",
+            "الرابع",
+            "الخامس",
+            "السادس",
+            "الأول المتوسط",
+            "الثاني المتوسط",
+            "الثالث المتوسط",
+            "الأول الثانوي",
+            "الثاني الثانوي",
+            "الثالث الثانوي"
+        ]
+    )
+
+    subject = st.selectbox(
+        "المادة",
+        [
+            "الرياضيات",
+            "العلوم",
+            "لغتي",
+            "اللغة الإنجليزية",
+            "الدراسات الإسلامية",
+            "الدراسات الاجتماعية",
+            "الفيزياء",
+            "الكيمياء",
+            "الأحياء",
+            "الحاسب"
+        ]
+    )
+
+with col2:
+
+    strategy = st.selectbox(
+        "الاستراتيجية التعليمية",
+        [
+            "التعلم باللعب",
+            "التعلم التعاوني",
+            "حل المشكلات",
+            "العصف الذهني",
+            "التعلم بالاكتشاف",
+            "التعلم بالمشاريع",
+            "التعلم المقلوب",
+            "التعلم بالاستقصاء",
+            "التعلم النشط",
+            "اختيار تلقائي من مُعين"
+        ]
+    )
+
+    duration = st.selectbox(
+        "مدة الحصة",
+        [30, 45, 60]
+    )
+
+    difficulty = st.selectbox(
+        "مستوى الصعوبة",
+        ["مبسط", "متوسط", "متقدم"]
+    )
+
+topic = st.text_input(
+    "عنوان الدرس",
+    placeholder="مثال: الكسور الاعتيادية"
+)
+
+notes = st.text_area(
+    "ملاحظات إضافية",
+    placeholder="اكتبي أي تفاصيل تريدين إضافتها للدرس."
+)
+
+design = st.selectbox(
+    "نمط التصميم",
+    [
+        "احترافي",
+        "ملون وجذاب",
+        "بسيط",
+        "بصري وتفاعلي"
+    ]
+)
+
+st.divider()
+
+generate = st.button(
+    "✨ إنشاء الحزمة التعليمية",
+    type="primary",
+    use_container_width=True
+)
+
+
+if generate:
+
+    if not topic.strip():
+
+        st.error("اكتبي عنوان الدرس أولًا.")
+
+    else:
+
+        data = {
+            "stage": stage,
+            "grade": grade,
+            "subject": subject,
+            "strategy": strategy,
+            "duration": duration,
+            "difficulty": difficulty,
+            "topic": topic.strip(),
+            "notes": notes,
+            "design": design
+        }
+
+        try:
+
+            with st.spinner("مُعين يعمل على إعداد الدرس..."):
+
+                lesson = generate_lesson(
+                    data,
+                    api_key,
+                    model
+                )
+
+                st.session_state["lesson"] = lesson
+                st.session_state["data"] = data
+
+            st.success("تم إنشاء الحزمة التعليمية!")
+
+        except Exception as e:
+
+            st.error(f"حدث خطأ أثناء إنشاء الدرس: {e}")
+
+
+# ==========================================
+# عرض النتائج
+# ==========================================
+
+if "lesson" in st.session_state:
+
+    lesson = st.session_state["lesson"]
+    data = st.session_state["data"]
+
+    st.divider()
+
+    st.header("📚 " + lesson["title"])
+
+    st.subheader("أهداف التعلم")
+
+    for objective in lesson.get("objectives", []):
+
+        st.write("✓ " + objective)
+
+    st.divider()
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "عرض PowerPoint",
+        "ورقة العمل",
+        "اللعبة",
+        "دليل المعلم"
+    ])
+
+    with tab1:
+
+        st.subheader("معاينة الشرائح")
+
+        for i, slide in enumerate(lesson["slides"], 1):
+
+            with st.expander(
+                f"الشريحة {i}: {slide.get('title', '')}"
+            ):
+
+                st.write(slide.get("body", ""))
+
+        pptx = create_powerpoint(lesson, data)
+
+        st.download_button(
+            "⬇️ تحميل PowerPoint",
+            data=pptx,
+            file_name="MUEEN_Presentation.pptx",
+            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        )
+
+    with tab2:
+
+        st.subheader("ورقة عمل الطالب")
+
+        for i, question in enumerate(
+            lesson["worksheet"], 1
+        ):
+
+            st.markdown(
+                f"**{i}. {question['question']}**"
+            )
+
+            for option in question.get("options", []):
+
+                st.write("□ " + option)
+
+            st.write("الإجابة: __________________")
+
+        pdf = create_pdf(lesson, data)
+
+        st.download_button(
+            "⬇️ تحميل ورقة العمل PDF",
+            data=pdf,
+            file_name="MUEEN_Worksheet.pdf",
+            mime="application/pdf"
+        )
+
+        with st.expander("إظهار نموذج الإجابة"):
+
+            for i, question in enumerate(
+                lesson["worksheet"], 1
+            ):
+
+                st.write(
+                    f"{i}. {question.get('answer', '')}"
+                )
+
+    with tab3:
+
+        st.subheader("اللعبة التعليمية")
+
+        game_html = create_game(lesson)
+
+        components.html(
+            game_html,
+            height=600,
+            scrolling=True
+        )
+
+        st.download_button(
+            "⬇️ تحميل اللعبة",
+            data=game_html.encode("utf-8"),
+            file_name="MUEEN_Game.html",
+            mime="text/html"
+        )
+
+    with tab4:
+
+        st.subheader("دليل المعلم")
+
+        st.write(lesson["teacher_guide"])
+
+        st.subheader("بيانات الحصة")
+
+        st.write("المرحلة: " + data["stage"])
+        st.write("الصف: " + data["grade"])
+        st.write("المادة: " + data["subject"])
+        st.write("الاستراتيجية: " + data["strategy"])
+        st.write(f"المدة: {data['duration']} دقيقة")
+
+        lesson_json = json.dumps(
+            lesson,
+            ensure_ascii=False,
+            indent=2
+        )
+
+        st.download_button(
+            "⬇️ تحميل بيانات الدرس",
+            data=lesson_json.encode("utf-8"),
+            file_name="MUEEN_Lesson.json",
+            mime="application/json"
+        )
+
+    st.warning(
+        "المحتوى الناتج يحتاج مراجعة المعلم، "
+        "ولا يُعد توثيقًا رسميًا لمحتوى المنهج السعودي."
+    )
+
+st.divider()
+
+st.markdown(
+    "<center>© MUEEN | مُعين — جميع الحقوق محفوظة</center>",
+    unsafe_allow_html=True
+)
